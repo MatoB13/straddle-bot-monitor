@@ -109,6 +109,9 @@
   .badge.reason-sl { background: rgba(255,92,92,0.15); color: var(--red); }
   .badge.reason-liquidation { background: rgba(255,92,92,0.3); color: #ffb3b3; }
   .badge.reason-timeout { background: rgba(139,147,167,0.2); color: var(--muted); }
+  .badge.reason-trail { background: rgba(91,140,255,0.15); color: var(--accent); }
+  .badge.reason-manual { background: rgba(245,166,35,0.15); color: var(--amber); }
+  .badge.reason-orphaned { background: rgba(139,147,167,0.2); color: var(--muted); }
   .badge.wallet-a { background: rgba(91,140,255,0.12); color: var(--accent); }
   .badge.wallet-b { background: rgba(245,166,35,0.15); color: var(--amber); }
   .badge.dry { background: rgba(245,166,35,0.15); color: var(--amber); }
@@ -166,6 +169,11 @@
     </div>
 
     <div class="tab-panel active" id="tab-open">
+      <section style="margin-bottom:20px">
+        <h2>ADA cena (24h) + urovne otvorenych pozicii</h2>
+        <div id="price-levels-chart"></div>
+        <div id="price-levels-legend" class="meta" style="margin-top:8px"></div>
+      </section>
       <div class="row-top" style="margin-bottom:10px">
         <h2 style="margin:0">Otvorene pozicie</h2>
         <button onclick="load()">Obnovit</button>
@@ -335,6 +343,9 @@ function renderConfig(cfg) {
     ["Margin mode", cfg.margin_mode],
     ["Max drzanie", cfg.max_hold_minutes > 0 ? cfg.max_hold_minutes + " min" : "bez limitu (SL/TP)"],
     ["Re-entry", cfg.re_entry_policy],
+    ["Trailing TP", cfg.trailing_tp_enabled ? "zapnuty" : "vypnuty"],
+    ["TP potvrdenie", cfg.tp_confirm_pct.toFixed(2) + "% nad TP"],
+    ["TP trailing", cfg.tp_trail_pct.toFixed(2) + "% od peaku"],
     ["Taker fee (base)", cfg.taker_fee_base_pct.toFixed(3) + "%"],
     ["Taker fee (efekt.)", cfg.effective_taker_fee_pct.toFixed(3) + "%"],
     ["Maker fee (rebate)", cfg.maker_fee_pct.toFixed(3) + "%"],
@@ -442,6 +453,82 @@ function renderCharts() {
   });
 }
 
+const WALLET_LINE_COLOR = { A: "#5b8cff", B: "#f5a623" };
+
+function renderPriceLevelsChart(priceHistory, openPositions) {
+  const el = document.getElementById("price-levels-chart");
+  const legendEl = document.getElementById("price-levels-legend");
+  const points = priceHistory
+    .map(p => ({ x: Number(p.ts_ms), y: Number(p.price) }))
+    .sort((a, b) => a.x - b.x);
+
+  if (!points.length) {
+    el.innerHTML = '<div class="empty">Zatial ziadne cenove data (zbierajú sa priebežne, ~1/min).</div>';
+    legendEl.innerHTML = "";
+    return;
+  }
+
+  const width = 860, height = 260, padL = 60, padR = 70, padT = 12, padB = 26;
+  const innerW = width - padL - padR, innerH = height - padT - padB;
+
+  const minT = points[0].x, maxT = points[points.length - 1].x;
+  const levels = [];
+  for (const p of openPositions) {
+    levels.push({ wallet: p.wallet, type: "SL", value: Number(p.sl_price) });
+    levels.push({ wallet: p.wallet, type: "TP", value: Number(p.tp_price) });
+  }
+
+  const allY = points.map(p => p.y).concat(levels.map(l => l.value));
+  let minY = Math.min(...allY), maxY = Math.max(...allY);
+  const padY = (maxY - minY) * 0.08 || Math.abs(maxY) * 0.01 || 1;
+  minY -= padY; maxY += padY;
+
+  const xScale = t => padL + ((t - minT) / (maxT - minT || 1)) * innerW;
+  const yScale = v => padT + innerH - ((v - minY) / (maxY - minY || 1)) * innerH;
+
+  const pricePolyline = points.map(p => `${xScale(p.x)},${yScale(p.y)}`).join(" ");
+
+  const levelLines = levels.map(l => {
+    const color = WALLET_LINE_COLOR[l.wallet] || "var(--muted)";
+    const dash = l.type === "SL" ? "6 4" : "0";
+    const y = yScale(l.value);
+    return `
+      <line x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" stroke="${color}"
+            stroke-width="1.4" stroke-dasharray="${dash}" opacity="0.85" />
+      <text x="${width - padR + 4}" y="${y + 3}" font-size="9.5" fill="${color}">
+        ${escapeHtml(l.wallet)} ${escapeHtml(l.type)} ${l.value.toFixed(4)}
+      </text>`;
+  }).join("");
+
+  const tickCount = 5;
+  const xTicks = Array.from({ length: tickCount }, (_, i) => minT + (maxT - minT) * (i / (tickCount - 1)));
+  const xLabels = xTicks.map(t => {
+    const label = new Date(t).toLocaleString("sk-SK", { hour: "2-digit", minute: "2-digit" });
+    return `<text x="${xScale(t)}" y="${height - 6}" font-size="9" fill="var(--muted)" text-anchor="middle">${label}</text>`;
+  }).join("");
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block">
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${height - padB}" stroke="var(--panel-border)" />
+      <line x1="${padL}" y1="${height - padB}" x2="${width - padR}" y2="${height - padB}" stroke="var(--panel-border)" />
+      <polyline points="${pricePolyline}" fill="none" stroke="var(--text)" stroke-width="1.6" />
+      ${levelLines}
+      <text x="${padL - 6}" y="${yScale(maxY - padY) + 4}" font-size="10" fill="var(--muted)" text-anchor="end">${(maxY - padY).toFixed(4)}</text>
+      <text x="${padL - 6}" y="${yScale(minY + padY) + 4}" font-size="10" fill="var(--muted)" text-anchor="end">${(minY + padY).toFixed(4)}</text>
+      ${xLabels}
+    </svg>
+  `;
+
+  if (!openPositions.length) {
+    legendEl.textContent = "Ciara = ADA cena. Ziadne otvorene pozicie, ziadne TP/SL urovne na zobrazenie.";
+  } else {
+    legendEl.innerHTML = "Plna ciara = TP, prerusovana = SL, farba = wallet " +
+      Object.entries(WALLET_LINE_COLOR)
+        .map(([w, c]) => `<span style="color:${c}">&#9632; ${w}</span>`)
+        .join(" &nbsp; ");
+  }
+}
+
 function setupRangeSwitch() {
   const btns = document.querySelectorAll(".range-btn");
   btns.forEach(btn => {
@@ -484,6 +571,7 @@ async function load() {
     renderClosed(data.closed || []);
     renderEvents(data.events || []);
     renderConfig(data.config || null);
+    renderPriceLevelsChart(data.priceHistory || [], data.open || []);
     allClosed = data.closed || [];
     renderCharts();
 

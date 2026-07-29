@@ -59,6 +59,14 @@ module.exports = async (req, res) => {
        LIMIT 100`
     );
 
+    const priceHistoryResult = await client.query(
+      `SELECT ts_ms, price
+       FROM straddle_price_snapshots
+       WHERE ts_ms >= $1
+       ORDER BY ts_ms ASC`,
+      [Date.now() - 25 * 3600 * 1000]
+    );
+
     const configResult = await client.query(
       `SELECT message FROM straddle_runtime_events
        WHERE event_type = 'CONFIG_SNAPSHOT'
@@ -81,6 +89,7 @@ module.exports = async (req, res) => {
       open: openResult.rows,
       closed,
       events: eventsResult.rows,
+      priceHistory: priceHistoryResult.rows,
       config: configSnapshot,
       summary: {
         openCount: openResult.rows.length,
