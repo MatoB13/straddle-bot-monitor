@@ -117,6 +117,18 @@
   .pnl-pos { color: var(--green); font-weight: 600; }
   .pnl-neg { color: var(--red); font-weight: 600; }
   .empty { color: var(--muted); font-size: 0.85rem; padding: 20px; text-align: center; }
+  .range-switch { display: flex; gap: 6px; margin-bottom: 18px; }
+  .range-btn {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--muted);
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .range-btn.active { color: var(--bg); background: var(--accent); border-color: var(--accent); }
   .error-box {
     background: rgba(255,92,92,0.1);
     border: 1px solid var(--red);
@@ -150,6 +162,7 @@
       <button class="tab-btn" data-tab="closed">Historia obchodov</button>
       <button class="tab-btn" data-tab="events">Runtime log</button>
       <button class="tab-btn" data-tab="config">Konfiguracia</button>
+      <button class="tab-btn" data-tab="charts">Grafy</button>
     </div>
 
     <div class="tab-panel active" id="tab-open">
@@ -173,6 +186,21 @@
     <div class="tab-panel" id="tab-config">
       <h2>Konfiguracia (nacitana z Railway ENV pri poslednom starte bota)</h2>
       <div class="grid" id="config-grid"></div>
+    </div>
+
+    <div class="tab-panel" id="tab-charts">
+      <div class="range-switch" id="range-switch">
+        <button class="range-btn" data-range="24h">24h</button>
+        <button class="range-btn active" data-range="10d">10 dni</button>
+      </div>
+      <section style="margin-bottom:20px">
+        <h2>Vyvoj kumulativneho PnL</h2>
+        <div id="pnl-chart"></div>
+      </section>
+      <section style="margin-bottom:0">
+        <h2>Vyvoj win rate</h2>
+        <div id="winrate-chart"></div>
+      </section>
     </div>
   </div>
   <div id="error" style="display:none" class="error-box"></div>
@@ -322,6 +350,110 @@ function renderConfig(cfg) {
   `).join("");
 }
 
+let allClosed = [];
+let currentRange = "10d";
+const RANGE_MS = { "24h": 24 * 3600 * 1000, "10d": 10 * 24 * 3600 * 1000 };
+const BUCKET_MS = { "24h": 3600 * 1000, "10d": 24 * 3600 * 1000 };
+
+function renderLineChart(containerId, points, { color = "var(--accent)", yFmt = (v) => v.toFixed(2), zeroLine = false } = {}) {
+  const el = document.getElementById(containerId);
+  if (!points.length) {
+    el.innerHTML = '<div class="empty">Ziadne obchody v tomto obdobi.</div>';
+    return;
+  }
+  if (points.length === 1) {
+    points = [points[0], { x: points[0].x + 1, y: points[0].y }];
+  }
+
+  const width = 860, height = 200, padL = 55, padR = 12, padT = 12, padB = 26;
+  const innerW = width - padL - padR, innerH = height - padT - padB;
+
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const minT = Math.min(...xs), maxT = Math.max(...xs);
+  let minY = Math.min(...ys), maxY = Math.max(...ys);
+  if (zeroLine) { minY = Math.min(minY, 0); maxY = Math.max(maxY, 0); }
+  const padY = (maxY - minY) * 0.12 || Math.abs(maxY) * 0.05 || 1;
+  const yMin = minY - padY, yMax = maxY + padY;
+
+  const xScale = t => padL + ((t - minT) / (maxT - minT || 1)) * innerW;
+  const yScale = v => padT + innerH - ((v - yMin) / (yMax - yMin || 1)) * innerH;
+
+  const linePoints = points.map(p => `${xScale(p.x)},${yScale(p.y)}`).join(" ");
+  const zero = zeroLine && yMin < 0 && yMax > 0
+    ? `<line x1="${padL}" y1="${yScale(0)}" x2="${width - padR}" y2="${yScale(0)}" stroke="var(--panel-border)" stroke-dasharray="4 3" />`
+    : "";
+
+  const tickCount = 5;
+  const xTicks = Array.from({ length: tickCount }, (_, i) => minT + (maxT - minT) * (i / (tickCount - 1)));
+  const xLabels = xTicks.map(t => {
+    const label = new Date(t).toLocaleString("sk-SK", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return `<text x="${xScale(t)}" y="${height - 6}" font-size="9" fill="var(--muted)" text-anchor="middle">${label}</text>`;
+  }).join("");
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block">
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${height - padB}" stroke="var(--panel-border)" />
+      <line x1="${padL}" y1="${height - padB}" x2="${width - padR}" y2="${height - padB}" stroke="var(--panel-border)" />
+      ${zero}
+      <polyline points="${linePoints}" fill="none" stroke="${color}" stroke-width="1.8" />
+      <text x="${padL - 6}" y="${yScale(yMax) + 4}" font-size="10" fill="var(--muted)" text-anchor="end">${yFmt(yMax)}</text>
+      <text x="${padL - 6}" y="${yScale(yMin) + 4}" font-size="10" fill="var(--muted)" text-anchor="end">${yFmt(yMin)}</text>
+      ${xLabels}
+    </svg>
+  `;
+}
+
+function computePnlSeries(closedInRange) {
+  let running = 0;
+  return closedInRange.map(t => {
+    running += Number(t.pnl_usd_net || 0);
+    return { x: Number(t.exit_ts_ms), y: running };
+  });
+}
+
+function computeWinRateSeries(closedInRange, bucketMs) {
+  const buckets = new Map();
+  for (const t of closedInRange) {
+    const bucketStart = Math.floor(Number(t.exit_ts_ms) / bucketMs) * bucketMs;
+    if (!buckets.has(bucketStart)) buckets.set(bucketStart, { wins: 0, total: 0 });
+    const b = buckets.get(bucketStart);
+    b.total += 1;
+    if (Number(t.pnl_usd_net) > 0) b.wins += 1;
+  }
+  return Array.from(buckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([x, b]) => ({ x, y: (b.wins / b.total) * 100 }));
+}
+
+function renderCharts() {
+  const rangeMs = RANGE_MS[currentRange];
+  const bucketMs = BUCKET_MS[currentRange];
+  const cutoff = Date.now() - rangeMs;
+  const inRange = allClosed
+    .filter(t => Number(t.exit_ts_ms) >= cutoff)
+    .sort((a, b) => Number(a.exit_ts_ms) - Number(b.exit_ts_ms));
+
+  renderLineChart("pnl-chart", computePnlSeries(inRange), {
+    color: "var(--accent)", yFmt: v => "$" + v.toFixed(2), zeroLine: true,
+  });
+  renderLineChart("winrate-chart", computeWinRateSeries(inRange, bucketMs), {
+    color: "var(--green)", yFmt: v => v.toFixed(0) + "%",
+  });
+}
+
+function setupRangeSwitch() {
+  const btns = document.querySelectorAll(".range-btn");
+  btns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      btns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentRange = btn.dataset.range;
+      renderCharts();
+    });
+  });
+}
+
 function setupTabs() {
   const btns = document.querySelectorAll(".tab-btn");
   btns.forEach(btn => {
@@ -352,6 +484,8 @@ async function load() {
     renderClosed(data.closed || []);
     renderEvents(data.events || []);
     renderConfig(data.config || null);
+    allClosed = data.closed || [];
+    renderCharts();
 
     document.getElementById("last-refresh").textContent =
       "Aktualizovane " + new Date().toLocaleTimeString("sk-SK");
@@ -366,6 +500,7 @@ async function load() {
 }
 
 setupTabs();
+setupRangeSwitch();
 load();
 </script>
 </body>

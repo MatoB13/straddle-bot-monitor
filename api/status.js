@@ -49,7 +49,7 @@ module.exports = async (req, res) => {
        FROM straddle_trades
        WHERE exit_ts_ms IS NOT NULL
        ORDER BY exit_ts_ms DESC
-       LIMIT 200`
+       LIMIT 2000`
     );
 
     const eventsResult = await client.query(
