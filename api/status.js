@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
 
     const openResult = await client.query(
       `SELECT id, trade_group_id, wallet, side, dry_run, entry_ts_ms, entry_price,
-              sl_price, tp_price, notional_usd
+              sl_price, tp_price, liq_price, notional_usd
        FROM straddle_trades
        WHERE exit_ts_ms IS NULL
        ORDER BY entry_ts_ms DESC`
@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
 
     const closedResult = await client.query(
       `SELECT id, trade_group_id, wallet, side, dry_run, entry_ts_ms, entry_price,
-              exit_ts_ms, exit_price, exit_reason, sl_price, tp_price,
+              exit_ts_ms, exit_price, exit_reason, sl_price, tp_price, liq_price,
               pnl_pct_raw, fee_pct, pnl_pct_net, notional_usd, pnl_usd_net
        FROM straddle_trades
        WHERE exit_ts_ms IS NOT NULL
@@ -59,6 +59,20 @@ module.exports = async (req, res) => {
        LIMIT 100`
     );
 
+    const configResult = await client.query(
+      `SELECT message FROM straddle_runtime_events
+       WHERE event_type = 'CONFIG_SNAPSHOT'
+       ORDER BY ts_ms DESC LIMIT 1`
+    );
+    let configSnapshot = null;
+    if (configResult.rows.length) {
+      try {
+        configSnapshot = JSON.parse(configResult.rows[0].message);
+      } catch (err) {
+        console.error("CONFIG_SNAPSHOT parse zlyhal:", err.message);
+      }
+    }
+
     const closed = closedResult.rows;
     const wins = closed.filter((t) => Number(t.pnl_usd_net) > 0).length;
     const totalPnlUsd = closed.reduce((sum, t) => sum + Number(t.pnl_usd_net || 0), 0);
@@ -67,6 +81,7 @@ module.exports = async (req, res) => {
       open: openResult.rows,
       closed,
       events: eventsResult.rows,
+      config: configSnapshot,
       summary: {
         openCount: openResult.rows.length,
         closedCount: closed.length,

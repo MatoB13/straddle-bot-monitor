@@ -107,6 +107,8 @@
   .badge.dir-short { background: rgba(255,92,92,0.15); color: var(--red); }
   .badge.reason-tp { background: rgba(62,207,142,0.15); color: var(--green); }
   .badge.reason-sl { background: rgba(255,92,92,0.15); color: var(--red); }
+  .badge.reason-liquidation { background: rgba(255,92,92,0.3); color: #ffb3b3; }
+  .badge.reason-timeout { background: rgba(139,147,167,0.2); color: var(--muted); }
   .badge.wallet-a { background: rgba(91,140,255,0.12); color: var(--accent); }
   .badge.wallet-b { background: rgba(245,166,35,0.15); color: var(--amber); }
   .badge.dry { background: rgba(245,166,35,0.15); color: var(--amber); }
@@ -147,6 +149,7 @@
       <button class="tab-btn active" data-tab="open">Otvorene pozicie</button>
       <button class="tab-btn" data-tab="closed">Historia obchodov</button>
       <button class="tab-btn" data-tab="events">Runtime log</button>
+      <button class="tab-btn" data-tab="config">Konfiguracia</button>
     </div>
 
     <div class="tab-panel active" id="tab-open">
@@ -165,6 +168,11 @@
     <div class="tab-panel" id="tab-events">
       <h2>Runtime log</h2>
       <div id="events-list"></div>
+    </div>
+
+    <div class="tab-panel" id="tab-config">
+      <h2>Konfiguracia (nacitana z Railway ENV pri poslednom starte bota)</h2>
+      <div class="grid" id="config-grid"></div>
     </div>
   </div>
   <div id="error" style="display:none" class="error-box"></div>
@@ -231,6 +239,7 @@ function renderOpen(open) {
       </div>
       <div class="meta" style="margin-top:6px">
         entry ${p.entry_price} | SL ${Number(p.sl_price).toFixed(6)} | TP ${Number(p.tp_price).toFixed(6)}
+        ${p.liq_price != null ? ` | LIQ ${Number(p.liq_price).toFixed(6)}` : ''}
         | notional $${p.notional_usd} | group ${escapeHtml(p.trade_group_id)}
       </div>
     </div>
@@ -251,7 +260,7 @@ function renderClosed(closed) {
         <div>
           <span class="badge wallet-${t.wallet.toLowerCase()}">Wallet ${t.wallet}</span>
           <span class="badge dir-${t.side}">${t.side.toUpperCase()}</span>
-          <span class="badge reason-${(t.exit_reason || '').toLowerCase()}">${t.exit_reason}</span>
+          <span class="badge reason-${(t.exit_reason || '').toLowerCase()}">${escapeHtml(t.exit_reason)}</span>
           <span class="badge ${t.dry_run ? 'dry' : 'live'}">${t.dry_run ? 'DRY RUN' : 'LIVE'}</span>
         </div>
         <span class="meta">${fmtTime(t.exit_ts_ms)}</span>
@@ -278,6 +287,37 @@ function renderEvents(events) {
         <span class="meta">${fmtTime(e.ts_ms)}</span>
       </div>
       <div class="meta" style="margin-top:6px">${escapeHtml(e.message)}</div>
+    </div>
+  `).join("");
+}
+
+function renderConfig(cfg) {
+  const grid = document.getElementById("config-grid");
+  if (!cfg) {
+    grid.innerHTML = '<div class="empty">Config sa zobrazi po prvom starte bota.</div>';
+    return;
+  }
+  const items = [
+    ["Mod", cfg.dry_run ? "DRY RUN" : "LIVE"],
+    ["Symbol", cfg.strike_symbol],
+    ["SL %", cfg.sl_pct.toFixed(2) + "%"],
+    ["TP %", cfg.tp_pct.toFixed(2) + "%"],
+    ["Notional / noha", "$" + cfg.position_notional_usd],
+    ["Leverage", cfg.leverage + "x"],
+    ["Margin mode", cfg.margin_mode],
+    ["Max drzanie", cfg.max_hold_minutes > 0 ? cfg.max_hold_minutes + " min" : "bez limitu (SL/TP)"],
+    ["Re-entry", cfg.re_entry_policy],
+    ["Taker fee (base)", cfg.taker_fee_base_pct.toFixed(3) + "%"],
+    ["Taker fee (efekt.)", cfg.effective_taker_fee_pct.toFixed(3) + "%"],
+    ["Maker fee (rebate)", cfg.maker_fee_pct.toFixed(3) + "%"],
+    ["STRIKE zlava", cfg.strike_holding_discount_pct.toFixed(1) + "%"],
+    ["Maintenance margin", cfg.strike_mmr_pct.toFixed(2) + "%"],
+    ["Likvidacny poplatok", cfg.liquidation_fee_pct.toFixed(2) + "%"],
+  ];
+  grid.innerHTML = items.map(([label, value]) => `
+    <div class="card">
+      <div class="label">${escapeHtml(label)}</div>
+      <div class="value">${escapeHtml(String(value))}</div>
     </div>
   `).join("");
 }
@@ -311,6 +351,7 @@ async function load() {
     renderOpen(data.open || []);
     renderClosed(data.closed || []);
     renderEvents(data.events || []);
+    renderConfig(data.config || null);
 
     document.getElementById("last-refresh").textContent =
       "Aktualizovane " + new Date().toLocaleTimeString("sk-SK");
