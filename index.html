@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Straddle Bot — Monitor</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #131722;
+    --panel-border: #232838;
+    --text: #e6e9ef;
+    --muted: #8b93a7;
+    --accent: #5b8cff;
+    --green: #3ecf8e;
+    --red: #ff5c5c;
+    --gray: #6b7280;
+    --amber: #f5a623;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --panel-border: #e3e6ec;
+      --text: #1a1d24;
+      --muted: #6b7280;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 16px;
+    max-width: 900px;
+    margin-inline: auto;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .card .label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .card .value { font-size: 1.15rem; font-weight: 600; margin-top: 2px; }
+  section { margin-bottom: 28px; }
+  section h2 {
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 0 0 10px;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--panel-border);
+    margin-bottom: 18px;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .row {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge.dir-long { background: rgba(62,207,142,0.15); color: var(--green); }
+  .badge.dir-short { background: rgba(255,92,92,0.15); color: var(--red); }
+  .badge.reason-tp { background: rgba(62,207,142,0.15); color: var(--green); }
+  .badge.reason-sl { background: rgba(255,92,92,0.15); color: var(--red); }
+  .badge.wallet-a { background: rgba(91,140,255,0.12); color: var(--accent); }
+  .badge.wallet-b { background: rgba(245,166,35,0.15); color: var(--amber); }
+  .badge.dry { background: rgba(245,166,35,0.15); color: var(--amber); }
+  .badge.live { background: rgba(255,92,92,0.15); color: var(--red); }
+  .meta { color: var(--muted); font-size: 0.78rem; }
+  .pnl-pos { color: var(--green); font-weight: 600; }
+  .pnl-neg { color: var(--red); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 0.85rem; padding: 20px; text-align: center; }
+  .error-box {
+    background: rgba(255,92,92,0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 14px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+  }
+  #loading { color: var(--muted); padding: 20px; text-align: center; }
+  button {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <h1>Straddle Bot</h1>
+  <div class="subtitle" id="last-refresh">Nacitavam...</div>
+
+  <div id="loading">Nacitavam data...</div>
+  <div id="content" style="display:none">
+    <div class="grid" id="summary-grid"></div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="open">Otvorene pozicie</button>
+      <button class="tab-btn" data-tab="closed">Historia obchodov</button>
+      <button class="tab-btn" data-tab="events">Runtime log</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-open">
+      <div class="row-top" style="margin-bottom:10px">
+        <h2 style="margin:0">Otvorene pozicie</h2>
+        <button onclick="load()">Obnovit</button>
+      </div>
+      <div id="open-list"></div>
+    </div>
+
+    <div class="tab-panel" id="tab-closed">
+      <h2>Historia obchodov</h2>
+      <div id="closed-list"></div>
+    </div>
+
+    <div class="tab-panel" id="tab-events">
+      <h2>Runtime log</h2>
+      <div id="events-list"></div>
+    </div>
+  </div>
+  <div id="error" style="display:none" class="error-box"></div>
+
+<script>
+function getToken() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("token") || sessionStorage.getItem("dashboard_token") || "";
+}
+
+function fmtTime(ms) {
+  if (!ms) return "-";
+  const d = new Date(Number(ms));
+  return d.toLocaleString("sk-SK", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function escapeHtml(value) {
+  if (value == null) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function fmtPct(v) {
+  if (v == null) return "-";
+  return (Number(v) * 100).toFixed(3) + "%";
+}
+
+function renderSummary(summary) {
+  const grid = document.getElementById("summary-grid");
+  const items = [
+    ["Mod", summary.dryRun === null ? "-" : (summary.dryRun ? "DRY RUN" : "LIVE")],
+    ["Otvorene nohy", summary.openCount],
+    ["Uzavrete obchody", summary.closedCount],
+    ["Win rate", summary.winRate != null ? summary.winRate.toFixed(1) + "%" : "-"],
+    ["Kumulativne PnL", "$" + summary.totalPnlUsd.toFixed(4)],
+  ];
+  grid.innerHTML = items.map(([label, value]) => `
+    <div class="card">
+      <div class="label">${label}</div>
+      <div class="value">${value}</div>
+    </div>
+  `).join("");
+}
+
+function renderOpen(open) {
+  const el = document.getElementById("open-list");
+  if (!open.length) {
+    el.innerHTML = '<div class="empty">Ziadne otvorene pozicie.</div>';
+    return;
+  }
+  el.innerHTML = open.map(p => `
+    <div class="row">
+      <div class="row-top">
+        <div>
+          <span class="badge wallet-${p.wallet.toLowerCase()}">Wallet ${p.wallet}</span>
+          <span class="badge dir-${p.side}">${p.side.toUpperCase()}</span>
+          <span class="badge ${p.dry_run ? 'dry' : 'live'}">${p.dry_run ? 'DRY RUN' : 'LIVE'}</span>
+        </div>
+        <span class="meta">otvorene ${fmtTime(p.entry_ts_ms)}</span>
+      </div>
+      <div class="meta" style="margin-top:6px">
+        entry ${p.entry_price} | SL ${Number(p.sl_price).toFixed(6)} | TP ${Number(p.tp_price).toFixed(6)}
+        | notional $${p.notional_usd} | group ${escapeHtml(p.trade_group_id)}
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderClosed(closed) {
+  const el = document.getElementById("closed-list");
+  if (!closed.length) {
+    el.innerHTML = '<div class="empty">Zatial ziadne uzavrete obchody.</div>';
+    return;
+  }
+  el.innerHTML = closed.map(t => {
+    const pnlClass = Number(t.pnl_usd_net) > 0 ? "pnl-pos" : Number(t.pnl_usd_net) < 0 ? "pnl-neg" : "";
+    return `
+    <div class="row">
+      <div class="row-top">
+        <div>
+          <span class="badge wallet-${t.wallet.toLowerCase()}">Wallet ${t.wallet}</span>
+          <span class="badge dir-${t.side}">${t.side.toUpperCase()}</span>
+          <span class="badge reason-${(t.exit_reason || '').toLowerCase()}">${t.exit_reason}</span>
+          <span class="badge ${t.dry_run ? 'dry' : 'live'}">${t.dry_run ? 'DRY RUN' : 'LIVE'}</span>
+        </div>
+        <span class="meta">${fmtTime(t.exit_ts_ms)}</span>
+      </div>
+      <div class="meta" style="margin-top:6px">
+        entry ${t.entry_price} &rarr; exit ${t.exit_price}
+        | raw ${fmtPct(t.pnl_pct_raw)} | fee ${fmtPct(t.fee_pct)} | net ${fmtPct(t.pnl_pct_net)}
+      </div>
+      <div style="margin-top:6px">PnL: <span class="${pnlClass}">$${Number(t.pnl_usd_net).toFixed(4)}</span></div>
+    </div>`;
+  }).join("");
+}
+
+function renderEvents(events) {
+  const el = document.getElementById("events-list");
+  if (!events.length) {
+    el.innerHTML = '<div class="empty">Zatial ziadne udalosti.</div>';
+    return;
+  }
+  el.innerHTML = events.map(e => `
+    <div class="row">
+      <div class="row-top">
+        <span class="badge" style="background:rgba(91,140,255,0.12);color:var(--accent)">${escapeHtml(e.event_type)}</span>
+        <span class="meta">${fmtTime(e.ts_ms)}</span>
+      </div>
+      <div class="meta" style="margin-top:6px">${escapeHtml(e.message)}</div>
+    </div>
+  `).join("");
+}
+
+function setupTabs() {
+  const btns = document.querySelectorAll(".tab-btn");
+  btns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      btns.forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+    });
+  });
+}
+
+async function load() {
+  const token = getToken();
+  if (token) sessionStorage.setItem("dashboard_token", token);
+
+  document.getElementById("loading").style.display = "block";
+  document.getElementById("content").style.display = "none";
+  document.getElementById("error").style.display = "none";
+
+  try {
+    const resp = await fetch(`/api/status?token=${encodeURIComponent(token)}`);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Neznama chyba");
+
+    renderSummary(data.summary);
+    renderOpen(data.open || []);
+    renderClosed(data.closed || []);
+    renderEvents(data.events || []);
+
+    document.getElementById("last-refresh").textContent =
+      "Aktualizovane " + new Date().toLocaleTimeString("sk-SK");
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("content").style.display = "block";
+  } catch (e) {
+    document.getElementById("loading").style.display = "none";
+    const errEl = document.getElementById("error");
+    errEl.textContent = "Chyba: " + e.message;
+    errEl.style.display = "block";
+  }
+}
+
+setupTabs();
+load();
+</script>
+</body>
+</html>

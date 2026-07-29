@@ -1,0 +1,9 @@
+{
+  "name": "straddle-bot-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read-only monitoring dashboard for the ADA straddle bot (Vercel + Railway Postgres).",
+  "dependencies": {
+    "pg": "^8.12.0"
+  }
+}
