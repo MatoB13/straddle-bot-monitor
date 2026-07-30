@@ -150,6 +150,7 @@
     font-size: 0.85rem;
     cursor: pointer;
   }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -176,7 +177,12 @@
       </section>
       <div class="row-top" style="margin-bottom:10px">
         <h2 style="margin:0">Otvorene pozicie</h2>
-        <button onclick="load()">Obnovit</button>
+        <div style="display:flex; gap:8px; align-items:center">
+          <span id="force-close-status" class="meta"></span>
+          <button id="force-close-btn" style="border-color:var(--red); color:var(--red)"
+                  onclick="forceCloseAndReset()">Zavriet a resetnut</button>
+          <button onclick="load()">Obnovit</button>
+        </div>
       </div>
       <div id="open-list"></div>
     </div>
@@ -259,6 +265,8 @@ function renderSummary(summary) {
 
 function renderOpen(open) {
   const el = document.getElementById("open-list");
+  const forceBtn = document.getElementById("force-close-btn");
+  if (forceBtn) forceBtn.disabled = !open.length;
   if (!open.length) {
     el.innerHTML = '<div class="empty">Ziadne otvorene pozicie.</div>';
     return;
@@ -539,6 +547,35 @@ function setupRangeSwitch() {
       renderCharts();
     });
   });
+}
+
+async function forceCloseAndReset() {
+  const confirmed = window.confirm(
+    "Naozaj zavriet VSETKY otvorene pozicie za aktualnu cenu a hned otvorit novy straddle par? " +
+    "Toto sa neda vratit spat."
+  );
+  if (!confirmed) return;
+
+  const token = getToken();
+  const btn = document.getElementById("force-close-btn");
+  const status = document.getElementById("force-close-status");
+  btn.disabled = true;
+  status.textContent = "Odosielam...";
+
+  try {
+    const resp = await fetch(`/api/force-close?token=${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Neznama chyba");
+    status.textContent = "Prikaz odoslany - bot ho vykona do ~5s.";
+    setTimeout(load, 7000);
+  } catch (e) {
+    status.textContent = "Chyba: " + e.message;
+    btn.disabled = false;
+  }
 }
 
 function setupTabs() {
