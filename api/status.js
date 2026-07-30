@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
 
     const openResult = await client.query(
       `SELECT id, trade_group_id, wallet, side, dry_run, entry_ts_ms, entry_price,
-              sl_price, tp_price, liq_price, notional_usd
+              sl_price, tp_price, liq_price, notional_usd, tp_touched, tp_armed, tp_peak
        FROM straddle_trades
        WHERE exit_ts_ms IS NULL
        ORDER BY entry_ts_ms DESC`

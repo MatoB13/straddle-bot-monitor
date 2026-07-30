@@ -116,6 +116,8 @@
   .badge.wallet-b { background: rgba(245,166,35,0.15); color: var(--amber); }
   .badge.dry { background: rgba(245,166,35,0.15); color: var(--amber); }
   .badge.live { background: rgba(255,92,92,0.15); color: var(--red); }
+  .badge.trail-armed { background: rgba(91,140,255,0.15); color: var(--accent); }
+  .badge.trail-touched { background: rgba(245,166,35,0.15); color: var(--amber); }
   .meta { color: var(--muted); font-size: 0.78rem; }
   .pnl-pos { color: var(--green); font-weight: 600; }
   .pnl-neg { color: var(--red); font-weight: 600; }
@@ -271,13 +273,21 @@ function renderOpen(open) {
     el.innerHTML = '<div class="empty">Ziadne otvorene pozicie.</div>';
     return;
   }
-  el.innerHTML = open.map(p => `
+  el.innerHTML = open.map(p => {
+    let trailBadge = "";
+    if (p.tp_armed) {
+      trailBadge = `<span class="badge trail-armed">Trailing aktivny - peak ${Number(p.tp_peak).toFixed(6)}</span>`;
+    } else if (p.tp_touched) {
+      trailBadge = `<span class="badge trail-touched">TP dotknute - caka na potvrdenie</span>`;
+    }
+    return `
     <div class="row">
       <div class="row-top">
         <div>
           <span class="badge wallet-${p.wallet.toLowerCase()}">Wallet ${p.wallet}</span>
           <span class="badge dir-${p.side}">${p.side.toUpperCase()}</span>
           <span class="badge ${p.dry_run ? 'dry' : 'live'}">${p.dry_run ? 'DRY RUN' : 'LIVE'}</span>
+          ${trailBadge}
         </div>
         <span class="meta">otvorene ${fmtTime(p.entry_ts_ms)}</span>
       </div>
@@ -286,8 +296,8 @@ function renderOpen(open) {
         ${p.liq_price != null ? ` | LIQ ${Number(p.liq_price).toFixed(6)}` : ''}
         | notional $${p.notional_usd} | group ${escapeHtml(p.trade_group_id)}
       </div>
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 }
 
 function renderClosed(closed) {
