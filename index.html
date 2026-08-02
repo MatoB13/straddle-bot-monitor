@@ -365,9 +365,11 @@ function renderConfig(cfg) {
     ["TP potvrdenie", cfg.tp_confirm_pct.toFixed(2) + "% nad TP"],
     ["TP trailing", cfg.tp_trail_pct.toFixed(2) + "% od peaku"],
     ["Taker fee (base)", cfg.taker_fee_base_pct.toFixed(3) + "%"],
-    ["Taker fee (efekt.)", cfg.effective_taker_fee_pct.toFixed(3) + "%"],
     ["Maker fee (rebate)", cfg.maker_fee_pct.toFixed(3) + "%"],
-    ["STRIKE zlava", cfg.strike_holding_discount_pct.toFixed(1) + "%"],
+    ["A (long) STRIKE drzane", cfg.wallet_a_strike_held.toLocaleString()],
+    ["A (long) zlava / taker", cfg.wallet_a_strike_discount_pct.toFixed(1) + "% / " + cfg.wallet_a_effective_taker_fee_pct.toFixed(3) + "%"],
+    ["B (short) STRIKE drzane", cfg.wallet_b_strike_held.toLocaleString()],
+    ["B (short) zlava / taker", cfg.wallet_b_strike_discount_pct.toFixed(1) + "% / " + cfg.wallet_b_effective_taker_fee_pct.toFixed(3) + "%"],
     ["Maintenance margin", cfg.strike_mmr_pct.toFixed(2) + "%"],
     ["Likvidacny poplatok", cfg.liquidation_fee_pct.toFixed(2) + "%"],
   ];
