@@ -157,8 +157,13 @@
 </head>
 <body>
   <div class="row-top" style="margin-bottom:2px">
-    <h1 style="margin:0">Straddle Bot</h1>
+    <h1 style="margin:0" id="page-title">Straddle Bot</h1>
     <button onclick="load()">Obnovit</button>
+  </div>
+  <div class="range-switch" id="bot-switch">
+    <button class="range-btn" data-bot="ada">ADA</button>
+    <button class="range-btn" data-bot="zec">ZEC</button>
+    <button class="range-btn" data-bot="night">NIGHT</button>
   </div>
   <div class="subtitle" id="last-refresh">Nacitavam...</div>
 
@@ -177,7 +182,7 @@
 
     <div class="tab-panel active" id="tab-open">
       <section style="margin-bottom:20px">
-        <h2>ADA cena (24h) + urovne otvorenych pozicii</h2>
+        <h2 id="price-chart-title">Cena (24h) + urovne otvorenych pozicii</h2>
         <div id="price-levels-chart"></div>
         <div id="price-levels-legend" class="meta" style="margin-top:8px"></div>
       </section>
@@ -207,15 +212,8 @@
       <div class="grid" id="wallet-balances-grid" style="margin-bottom:24px"></div>
       <h2>Konfiguracia (nacitana z Railway ENV pri poslednom starte bota)</h2>
       <div class="grid" id="config-grid"></div>
-      <div class="meta" style="margin-top:12px">
-        SL/TP zmenene 2026-08-04 z 2%/3.5% na 2%/12% po prehodnoteni na suvislom
-        2-rocnom backteste (povodna validacia bola len +$24 net za 86 dni - prilis
-        tenka hrana, ktora sa na dlhsom obdobi preklopila do straty). Likvidacny
-        vankus ostava nezmeneny (2.58x), zmenilo sa len TP.
-        Crash-defense (volatility circuit-breaker) sme vedome NEzapli - na tomto
-        uz aj tak sirokom TP skor skodil, nie pomahal (extra riziko bez benefitu,
-        siroky rozptyl vysledkov naprieč testovanymi oknami).
-      </div>
+      <div class="grid" id="crash-config-grid" style="margin-top:12px"></div>
+      <div class="meta" style="margin-top:12px" id="config-footnote"></div>
     </div>
 
     <div class="tab-panel" id="tab-charts">
@@ -239,6 +237,72 @@
 function getToken() {
   const params = new URLSearchParams(window.location.search);
   return params.get("token") || sessionStorage.getItem("dashboard_token") || "";
+}
+
+const BOT_META = {
+  ada: {
+    label: "ADA",
+    footnote: "SL/TP zmenene 2026-08-04 z 2%/3.5% na 2%/12% po prehodnoteni na suvislom " +
+      "2-rocnom backteste (povodna validacia bola len +$24 net za 86 dni - prilis " +
+      "tenka hrana, ktora sa na dlhsom obdobi preklopila do straty). Likvidacny " +
+      "vankus ostava nezmeneny (2.58x), zmenilo sa len TP. " +
+      "Crash-defense (volatility circuit-breaker) sme vedome NEzapli - na tomto " +
+      "uz aj tak sirokom TP skor skodil, nie pomahal.",
+  },
+  zec: {
+    label: "ZEC",
+    footnote: "SL/TP=2.75%/12.0% zvolene 2026-08-05 na suvislom 2-rocnom ZECUSDT backteste " +
+      "(rovnaka metodika ako ADA revalidacia) - najlepsia kombinacia velkosti aj " +
+      "okennej robustnosti (6/9 pozitivnych ~83-dnovych okien), nie len najvyssie cislo " +
+      "v grid-e. Crash-defense vedome VYPNUTY - na tomto kandidatovi obratil zisk na " +
+      "stratu ($1746 -> -$971 v teste), presny opak efektu na NIGHT bote.",
+  },
+  night: {
+    label: "NIGHT",
+    footnote: "SL/TP=4.0%/5.5% (normalny rezim) je najlepsi z pomerne slabeho poľa na ~5 " +
+      "mesiacoch dat - ber ako hruby odhad, nie overenu hranu ako pri ADA/ZEC. " +
+      "Crash-defense je tu ZAPNUTY defaultne (na rozdiel od ZEC) - Strike-ov margin tier " +
+      "pre NIGHT ma len 1.25x likvidacny vankus v normalnom rezime (vs 1.9-2.6x pri " +
+      "ADA/ZEC), a down-scalovana simulacia crashu z 10.10.2025 ukazala, ze crash-defense " +
+      "tu eliminuje likvidacie a zhruba strojnasobuje PnL.",
+  },
+};
+const DEFAULT_BOT = "ada";
+
+function getBot() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("bot");
+  if (fromUrl && BOT_META[fromUrl]) return fromUrl;
+  const stored = sessionStorage.getItem("dashboard_bot");
+  if (stored && BOT_META[stored]) return stored;
+  return DEFAULT_BOT;
+}
+
+let currentBot = getBot();
+
+function setBot(bot) {
+  currentBot = bot;
+  sessionStorage.setItem("dashboard_bot", bot);
+  const params = new URLSearchParams(window.location.search);
+  params.set("bot", bot);
+  history.replaceState(null, "", "?" + params.toString());
+  document.querySelectorAll("#bot-switch .range-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.bot === bot);
+  });
+  const meta = BOT_META[bot];
+  document.getElementById("page-title").textContent = "Straddle Bot — " + meta.label;
+  document.getElementById("price-chart-title").textContent = meta.label + " cena (24h) + urovne otvorenych pozicii";
+}
+
+function setupBotSwitch() {
+  document.querySelectorAll("#bot-switch .range-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.bot === currentBot) return;
+      setBot(btn.dataset.bot);
+      load();
+    });
+  });
+  setBot(currentBot);
 }
 
 function fmtTime(ms) {
@@ -439,6 +503,28 @@ function renderConfig(cfg) {
       <div class="value">${escapeHtml(String(value))}</div>
     </div>
   `).join("");
+
+  const crashGrid = document.getElementById("crash-config-grid");
+  if (cfg.crash_defense_enabled === undefined) {
+    crashGrid.innerHTML = "";
+  } else {
+    const crashItems = [
+      ["Crash-defense", cfg.crash_defense_enabled ? "zapnuty" : "vypnuty"],
+      ["Detekcia okno / vstup / vystup", cfg.crash_vol_window_min + "min / " + cfg.crash_entry_pct.toFixed(1) + "% / " + cfg.crash_exit_pct.toFixed(1) + "%"],
+      ["Potvrdenie pokoja", cfg.crash_confirm_calm_min + "min"],
+      ["Crash leverage / SL / TP", cfg.crash_leverage + "x / " + cfg.crash_sl_pct.toFixed(1) + "% / " + cfg.crash_tp_pct.toFixed(1) + "%"],
+      ["Smerove okno / min. pohyb", cfg.crash_dir_window_min + "min / " + cfg.crash_dir_min_move_pct.toFixed(1) + "%"],
+    ];
+    crashGrid.innerHTML = crashItems.map(([label, value]) => `
+      <div class="card">
+        <div class="label">${escapeHtml(label)}</div>
+        <div class="value">${escapeHtml(String(value))}</div>
+      </div>
+    `).join("");
+  }
+
+  document.getElementById("config-footnote").textContent =
+    (BOT_META[currentBot] && BOT_META[currentBot].footnote) || "";
 }
 
 let allClosed = [];
@@ -635,10 +721,10 @@ async function forceCloseAndReset() {
   status.textContent = "Odosielam...";
 
   try {
-    const resp = await fetch(`/api/force-close?token=${encodeURIComponent(token)}`, {
+    const resp = await fetch(`/api/force-close?token=${encodeURIComponent(token)}&bot=${currentBot}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, bot: currentBot }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Neznama chyba");
@@ -671,7 +757,7 @@ async function load() {
   document.getElementById("error").style.display = "none";
 
   try {
-    const resp = await fetch(`/api/status?token=${encodeURIComponent(token)}`);
+    const resp = await fetch(`/api/status?token=${encodeURIComponent(token)}&bot=${currentBot}`);
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Neznama chyba");
 
@@ -700,6 +786,7 @@ async function load() {
 
 setupTabs();
 setupRangeSwitch();
+setupBotSwitch();
 load();
 </script>
 </body>

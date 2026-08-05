@@ -1,15 +1,5 @@
 const { Client } = require("pg");
-
-function timingSafeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) {
-    return false;
-  }
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-}
+const { resolveConnectionString, timingSafeEqual } = require("./_bots");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -25,9 +15,16 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const connectionString = process.env.DATABASE_URL;
+  const botParam = (req.body && req.body.bot) || req.query.bot;
+  let connectionString;
+  try {
+    connectionString = resolveConnectionString(botParam);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+    return;
+  }
   if (!connectionString) {
-    res.status(500).json({ error: "DATABASE_URL nie je nastaveny." });
+    res.status(500).json({ error: "DATABASE_URL pre tohto bota nie je nastaveny." });
     return;
   }
 
